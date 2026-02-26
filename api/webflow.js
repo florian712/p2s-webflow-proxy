@@ -13,7 +13,7 @@ export default async function handler(req, res) {
 
     if (!WEBFLOW_TOKEN) {
       return res.status(500).json({
-        error: "WEBFLOW_API_TOKEN not found",
+        error: "WEBFLOW_API_TOKEN not found in Vercel environment variables",
       });
     }
 
@@ -42,12 +42,39 @@ export default async function handler(req, res) {
     const data = JSON.parse(text);
     let items = data.items || [];
 
-    //  NEW: filter by slug if provided
+    // ===== SLUG FILTERING (already working) =====
     if (slug) {
-      items = items.filter((item) => item.fieldData?.slug === slug);
+      items = items.filter(
+        (item) => item.fieldData?.slug === slug
+      );
     }
 
-    return res.status(200).json({ items });
+    // ===== CLEAN + SAFE TRANSFORMATION =====
+    const cleanedItems = items.map((item) => {
+      const fd = item.fieldData || {};
+
+      return {
+        id: item.id,
+        slug: fd.slug || null,
+        name: fd.name || null,
+        h1: fd.h1 || fd.name || null,
+        metaDescription: fd["meta-description"] || null,
+        content: fd.content || null,
+        thumbnail: fd.thumbnail || null,
+        video: fd.video || null,
+        author: fd["author-s"] || null,
+        requireFormSubmission: fd["require-form-submission"] || false,
+
+        // ===== OPTION FIELDS WITH SAFE FALLBACKS =====
+        category: fd.category || "General",
+        format: fd.format || "Resource",
+        industry: fd.industry || "Cross-Industry",
+        language: fd.language || null,
+      };
+    });
+
+    return res.status(200).json({ items: cleanedItems });
+
   } catch (error) {
     return res.status(500).json({
       error: "Server crashed",
