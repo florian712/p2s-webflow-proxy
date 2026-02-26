@@ -13,11 +13,12 @@ export default async function handler(req, res) {
 
     if (!WEBFLOW_TOKEN) {
       return res.status(500).json({
-        error: "WEBFLOW_API_TOKEN not found in Vercel environment variables",
+        error: "WEBFLOW_API_TOKEN not found",
       });
     }
 
     const COLLECTION_ID = "65e1ce3530fd753ef9a25bf8";
+    const slug = req.query.slug;
 
     const response = await fetch(
       `https://api.webflow.com/v2/collections/${COLLECTION_ID}/items/live`,
@@ -39,8 +40,14 @@ export default async function handler(req, res) {
     }
 
     const data = JSON.parse(text);
+    let items = data.items || [];
 
-    return res.status(200).json(data);
+    //  NEW: filter by slug if provided
+    if (slug) {
+      items = items.filter((item) => item.fieldData?.slug === slug);
+    }
+
+    return res.status(200).json({ items });
   } catch (error) {
     return res.status(500).json({
       error: "Server crashed",
