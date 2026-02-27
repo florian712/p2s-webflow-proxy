@@ -11,10 +11,6 @@ export default async function handler(req, res) {
     const WEBFLOW_TOKEN = process.env.WEBFLOW_API_TOKEN;
     const COLLECTION_ID = "65e1ce3530fd753ef9a25bf8";
 
-    if (!WEBFLOW_TOKEN) {
-      return res.status(500).json({ error: "Missing WEBFLOW_API_TOKEN" });
-    }
-
     const response = await fetch(
       `https://api.webflow.com/v2/collections/${COLLECTION_ID}/items/live`,
       {
@@ -25,45 +21,14 @@ export default async function handler(req, res) {
       }
     );
 
-    if (!response.ok) {
-      const text = await response.text();
-      return res.status(response.status).json({ error: text });
-    }
-
     const data = await response.json();
-    const items = data.items || [];
 
-    const mapped = items.map(item => {
-      const fd = item.fieldData || {};
-
-      return {
-        id: item.id,
-        slug: fd.slug,
-        name: fd.name,
-        h1: fd.h1,
-        metaDescription: fd["meta-description"],
-        content: fd.content,
-        thumbnail: fd.thumbnail || null,
-        video: fd.video || null,
-        file: fd.file || null,
-        websiteUrl: fd["website-url"] || null,
-        author: fd["author-s"] || [],
-        requireFormSubmission: fd["require-form-submission"] || false,
-        language: fd.language,
-
-        // ✅ Use value directly
-        formatLabel: fd["format"] || "Resource",
-        categoryLabel: fd["categories"] || "General",
-        industryLabel: fd["industries"] || "Cross-industry",
-      };
+    // 🔥 RETURN RAW FIELD DATA FOR FIRST ITEM
+    return res.status(200).json({
+      debugFieldData: data.items?.[0]?.fieldData
     });
-
-    return res.status(200).json({ items: mapped });
 
   } catch (error) {
-    return res.status(500).json({
-      error: true,
-      message: error.message,
-    });
+    return res.status(500).json({ error: error.message });
   }
 }
