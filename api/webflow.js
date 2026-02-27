@@ -1,80 +1,58 @@
-Update the Learning Hub resources component to use the new API structure.
+export default async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-The API no longer returns fieldData.
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
 
-Each item now has flattened properties:
+  try {
+    const WEBFLOW_TOKEN = process.env.WEBFLOW_API_TOKEN;
 
-slug
+    if (!WEBFLOW_TOKEN) {
+      return res.status(500).json({
+        error: "WEBFLOW_API_TOKEN not found",
+      });
+    }
 
-name
+    const COLLECTION_ID = "65e1ce3530fd753ef9a25bf8";
+    const slug = req.query.slug;
 
-h1
+    const response = await fetch(
+      `https://api.webflow.com/v2/collections/${COLLECTION_ID}/items/live`,
+      {
+        headers: {
+          Authorization: `Bearer ${WEBFLOW_TOKEN}`,
+          "accept-version": "2.0.0",
+        },
+      }
+    );
 
-metaDescription
+    const text = await response.text();
 
-content
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: "Webflow API error",
+        details: text,
+      });
+    }
 
-thumbnail
+    const data = JSON.parse(text);
+    let items = data.items || [];
 
-video
+    if (slug) {
+      items = items.filter(
+        (item) => item.fieldData?.slug === slug
+      );
+    }
 
-author
+    return res.status(200).json({ items });
 
-requireFormSubmission
-
-category
-
-format
-
-industry
-
-language
-
-Replace all references of:
-
-item.fieldData.categories
-
-item.fieldData.category
-
-item.fieldData.format
-
-item.fieldData.industry
-
-item.fieldData.slug
-
-item.fieldData.name
-
-item.fieldData.thumbnail
-
-item.fieldData.content
-
-With:
-
-item.category
-
-item.format
-
-item.industry
-
-item.slug
-
-item.name
-
-item.thumbnail
-
-item.content
-
-Add optional chaining protection where needed:
-
-Example:
-Replace any unsafe usage like:
-
-item.categories.map(...)
-
-With:
-
-(item.category ? [item.category] : []).map(...)
-
-Do not change layout or styling.
-Only update data references to match the flattened API structure.
-Prevent runtime crashes if a field is missing.
+  } catch (error) {
+    return res.status(500).json({
+      error: "Server crashed",
+      message: error.message,
+    });
+  }
+}
