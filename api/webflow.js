@@ -22,33 +22,52 @@ export default async function handler(req, res) {
       "accept-version": "2.0.0",
     };
 
-    // 1️⃣ Fetch collection schema (to resolve option labels)
+    // ===== 1️⃣ Fetch schema safely =====
     const schemaRes = await fetch(
       `https://api.webflow.com/v2/collections/${COLLECTION_ID}`,
       { headers }
     );
 
-    const schemaData = await schemaRes.json();
-    const fields = schemaData.fields || [];
+    if (!schemaRes.ok) {
+      const t = await schemaRes.text();
+      return res.status(500).json({ error: "Schema fetch failed", details: t });
+    }
 
-    const formatField = fields.find(f => f.slug === "type-of-resources");
-    const categoryField = fields.find(f => f.slug === "field");
-    const industryField = fields.find(f => f.slug === "industry");
+    const schemaData = await schemaRes.json();
+    const fields = schemaData?.fields || [];
+
+    // Find fields by display name (much safer than slug)
+    const formatField = fields.find(f =>
+      f.displayName?.toLowerCase().includes("format")
+    );
+
+    const categoryField = fields.find(f =>
+      f.displayName?.toLowerCase().includes("category")
+    );
+
+    const industryField = fields.find(f =>
+      f.displayName?.toLowerCase().includes("industry")
+    );
 
     const formatOptions = formatField?.validations?.options || [];
     const categoryOptions = categoryField?.validations?.options || [];
     const industryOptions = industryField?.validations?.options || [];
 
-    // 2️⃣ Fetch live items
+    // ===== 2️⃣ Fetch items =====
     const itemsRes = await fetch(
       `https://api.webflow.com/v2/collections/${COLLECTION_ID}/items/live`,
       { headers }
     );
 
-    const itemsData = await itemsRes.json();
-    const items = itemsData.items || [];
+    if (!itemsRes.ok) {
+      const t = await itemsRes.text();
+      return res.status(500).json({ error: "Items fetch failed", details: t });
+    }
 
-    // 3️⃣ Map and resolve option labels
+    const itemsData = await itemsRes.json();
+    const items = itemsData?.items || [];
+
+    // ===== 3️⃣ Map items safely =====
     const mapped = items.map(item => {
       const fd = item.fieldData || {};
 
