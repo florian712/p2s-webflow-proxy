@@ -2,46 +2,31 @@
  * Vercel Serverless Function
  * Route: /api/webflow
  *
- * What it does:
- * - Fetches live items from Webflow collection "Blogs"
- * - Fetches collection schema to translate Option field IDs -> human labels
- * - Returns "clean" items with label fields Lovable can display directly:
- *   formatLabel, categoryLabel, industryLabel, languageLabel, typeOfResourcesLabel
+ * IMPORTANT: Response shape is exactly:
+ *   { items: [...] }
+ * to avoid breaking Lovable’s existing fetch/parser logic.
  *
- * Safe defaults:
- * - categoryLabel fallback: "General"
- * - formatLabel fallback: "Resource"
- * - industryLabel fallback: "Cross-Industry"
+ * Adds resolved labels:
+ *   formatLabel, categoryLabel, industryLabel
+ *
+ * Fallbacks:
+ *   categoryLabel: "General"
+ *   formatLabel: "Resource"
+ *   industryLabel: "Cross-Industry"
  */
 
 const COLLECTION_ID = "65e1ce3530fd753ef9a25bf8";
 const WEBFLOW_API_BASE = "https://api.webflow.com/v2";
 
-// --- small in-memory cache (works fine on Vercel warm instances) ---
-let schemaCache = {
+// Simple cache for schema mapping (warm instances)
+let cached = {
   expiresAt: 0,
-  optionMapsBySlug: {}, // { [fieldSlug]: { [optionId]: optionName } }
+  optionMapsBySlug: {},
 };
 
 function setCors(req, res) {
-  const origin = req.headers.origin || "*";
-
-  // Allow Lovable preview + your domains + local dev
-  const allowList = [
-    /^https:\/\/.*\.lovable\.app$/,
-    /^https:\/\/.*\.lovableproject\.com$/,
-    /^https:\/\/lovable\.dev$/,
-    /^https:\/\/.*\.vercel\.app$/,
-    /^https:\/\/(www\.)?p2sconsulting\.com$/,
-    /^https:\/\/(www\.)?p2s\.be$/,
-    /^http:\/\/localhost:\d+$/,
-  ];
-
-  const allowed =
-    origin === "*" || allowList.some((re) => re.test(origin)) ? origin : "*";
-
-  res.setHeader("Access-Control-Allow-Origin", allowed);
-  res.setHeader("Vary", "Origin");
+  // Safest for now while debugging
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
   res.setHeader(
     "Access-Control-Allow-Headers",
@@ -56,21 +41,23 @@ async function webflowFetch(path, token) {
       "accept-version": "2.0.0",
     },
   });
+
   const text = await resp.text();
+
   if (!resp.ok) {
     const err = new Error(`Webflow API error ${resp.status}`);
     err.status = resp.status;
     err.details = text;
     throw err;
   }
+
   return JSON.parse(text);
 }
 
 function buildOptionMapsFromCollectionSchema(collection) {
-  // collection.fields[] contains Option fields with validations.options[]
   const maps = {};
-
   const fields = Array.isArray(collection?.fields) ? collection.fields : [];
+
   for (const f of fields) {
     if (f?.type !== "Option") continue;
     const slug = f?.slug;
@@ -79,9 +66,7 @@ function buildOptionMapsFromCollectionSchema(collection) {
 
     maps[slug] = {};
     for (const opt of options) {
-      if (opt?.id && opt?.name) {
-        maps[slug][opt.id] = opt.name;
-      }
+      if (opt?.id && opt?.name) maps[slug][opt.id] = opt.name;
     }
   }
 
@@ -89,13 +74,15 @@ function buildOptionMapsFromCollectionSchema(collection) {
 }
 
 function pickFieldSlug(fieldData, candidates) {
+  if (!fieldData) return null;
+
   // exact match first
   for (const c of candidates) {
-    if (fieldData && Object.prototype.hasOwnProperty.call(fieldData, c)) return c;
+    if (Object.prototype.hasOwnProperty.call(fieldData, c)) return c;
   }
 
-  // fuzzy match (case-insensitive contains)
-  const keys = Object.keys(fieldData || {});
+  // fuzzy match
+  const keys = Object.keys(fieldData);
   for (const c of candidates) {
     const lc = c.toLowerCase();
     const found = keys.find((k) => k.toLowerCase() === lc);
@@ -106,23 +93,15 @@ function pickFieldSlug(fieldData, candidates) {
     const found = keys.find((k) => k.toLowerCase().includes(lc));
     if (found) return found;
   }
+
   return null;
 }
 
 function optionLabel(optionMapsBySlug, fieldSlug, value) {
   if (!fieldSlug) return null;
-
   const map = optionMapsBySlug?.[fieldSlug] || {};
-
-  // value can be: optionId string, null, undefined, or array (multi-ref not option, but safe)
   if (!value) return null;
-
-  if (Array.isArray(value)) {
-    // If Webflow option ever becomes multi-select, convert to labels
-    const labels = value.map((v) => map[v] || null).filter(Boolean);
-    return labels.length ? labels.join(", ") : null;
-  }
-
+  if (Array.isArray(value)) return null; // not expected for Option, but safe
   return map[value] || null;
 }
 
@@ -130,7 +109,9 @@ export default async function handler(req, res) {
   setCors(req, res);
 
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "GET") return res.status(405).json({ error: true, message: "Only GET is supported" });
+  if (req.method !== "GET") {
+    return res.status(405).json({ error: true, message: "Only GET is supported" });
+  }
 
   try {
     const token = process.env.WEBFLOW_API_TOKEN;
@@ -141,58 +122,31 @@ export default async function handler(req, res) {
       });
     }
 
-    // 1) Fetch items (live)
+    // 1) Fetch live items
     const itemsData = await webflowFetch(
       `/collections/${COLLECTION_ID}/items/live`,
       token
     );
-
     const items = Array.isArray(itemsData?.items) ? itemsData.items : [];
 
-    // 2) Fetch collection schema (cached for 1 hour)
+    // 2) Fetch schema (cached 1 hour)
     const now = Date.now();
-    if (!schemaCache.expiresAt || now > schemaCache.expiresAt) {
+    if (!cached.expiresAt || now > cached.expiresAt) {
       const collection = await webflowFetch(`/collections/${COLLECTION_ID}`, token);
-      schemaCache.optionMapsBySlug = buildOptionMapsFromCollectionSchema(collection);
-      schemaCache.expiresAt = now + 60 * 60 * 1000;
+      cached.optionMapsBySlug = buildOptionMapsFromCollectionSchema(collection);
+      cached.expiresAt = now + 60 * 60 * 1000;
     }
 
-    const optionMapsBySlug = schemaCache.optionMapsBySlug || {};
-
-    // 3) Determine which field slugs correspond to your tags
-    // We detect them automatically from existing fieldData keys.
-    // If your slugs are exactly "format", "category", "industry" this will find them.
-    // If they are "format-2" etc, this still finds them by contains-match.
+    const optionMapsBySlug = cached.optionMapsBySlug || {};
     const sampleFieldData = items[0]?.fieldData || {};
 
-    const formatSlug = pickFieldSlug(sampleFieldData, [
-      "format",
-      "formats",
-      "resource-format",
-      "format-of-resource",
-    ]);
+    // 3) Detect your option field slugs (category/format/industry)
+    // NOTE: We DO NOT use "type-of-resources" for these tags.
+    const formatSlug = pickFieldSlug(sampleFieldData, ["format", "resource-format"]);
+    const categorySlug = pickFieldSlug(sampleFieldData, ["category", "categories"]);
+    const industrySlug = pickFieldSlug(sampleFieldData, ["industry", "industries"]);
 
-    const categorySlug = pickFieldSlug(sampleFieldData, [
-      "category",
-      "categories",
-      "resource-category",
-    ]);
-
-    const industrySlug = pickFieldSlug(sampleFieldData, [
-      "industry",
-      "industries",
-      "industry-tag",
-    ]);
-
-    // keep existing Webflow field too (you had this earlier)
-    const typeOfResourcesSlug = pickFieldSlug(sampleFieldData, [
-      "type-of-resources",
-      "type",
-    ]);
-
-    const languageSlug = pickFieldSlug(sampleFieldData, ["language"]);
-
-    // 4) Build cleaned response
+    // 4) Clean + add labels but keep all existing fields you already rely on
     const cleaned = items.map((it) => {
       const fd = it.fieldData || {};
 
@@ -200,30 +154,17 @@ export default async function handler(req, res) {
       const categoryId = categorySlug ? fd[categorySlug] : null;
       const industryId = industrySlug ? fd[industrySlug] : null;
 
-      const formatLabel =
-        optionLabel(optionMapsBySlug, formatSlug, formatId) || "Resource";
-
-      const categoryLabel =
-        optionLabel(optionMapsBySlug, categorySlug, categoryId) || "General";
-
-      const industryLabel =
-        optionLabel(optionMapsBySlug, industrySlug, industryId) || "Cross-Industry";
-
-      const languageLabel =
-        optionLabel(optionMapsBySlug, languageSlug, fd[languageSlug]) ||
-        null;
-
-      // IMPORTANT: type-of-resources is NOT your "Format" tag, but we still expose it separately in case you need it
-      const typeOfResourcesLabel =
-        optionLabel(optionMapsBySlug, typeOfResourcesSlug, fd[typeOfResourcesSlug]) ||
-        null;
+      const formatLabel = optionLabel(optionMapsBySlug, formatSlug, formatId) || "Resource";
+      const categoryLabel = optionLabel(optionMapsBySlug, categorySlug, categoryId) || "General";
+      const industryLabel = optionLabel(optionMapsBySlug, industrySlug, industryId) || "Cross-Industry";
 
       return {
+        // Keep what Lovable expects
         id: it.id,
         slug: fd.slug || it.slug || "",
         name: fd.name || "",
         h1: fd.h1 || "",
-        metaDescription: fd["meta-description"] || fd.metaDescription || "",
+        metaDescription: fd["meta-description"] || "",
         content: fd.content || "",
         thumbnail: fd.thumbnail || null,
         mainImage: fd["main-image"] || null,
@@ -232,32 +173,22 @@ export default async function handler(req, res) {
         websiteUrl: fd["website-url"] || null,
         author: fd["author-s"] || [],
         requireFormSubmission: !!fd["require-form-submission"],
+        language: fd.language || null,
 
-        // ✅ The only three tags Lovable should display
+        // ✅ These are the tags Lovable should show
         formatLabel,
         categoryLabel,
         industryLabel,
 
-        // Extra info (optional)
-        language: fd.language || null,
-        languageLabel,
-        typeOfResources: fd["type-of-resources"] || null,
-        typeOfResourcesLabel,
+        // Optional: expose raw IDs too (helpful for debugging)
+        formatId: formatId || null,
+        categoryId: categoryId || null,
+        industryId: industryId || null,
       };
     });
 
-    return res.status(200).json({
-      ok: true,
-      detectedFieldSlugs: {
-        formatSlug,
-        categorySlug,
-        industrySlug,
-        // exposed for transparency/debugging
-        typeOfResourcesSlug,
-        languageSlug,
-      },
-      items: cleaned,
-    });
+    // IMPORTANT: return EXACTLY { items: [...] }
+    return res.status(200).json({ items: cleaned });
   } catch (err) {
     return res.status(err.status || 500).json({
       error: true,
