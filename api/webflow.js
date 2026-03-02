@@ -21,7 +21,7 @@ export default async function handler(req, res) {
       "accept-version": "2.0.0"
     };
 
-    // Fetch schema
+    // Fetch collection schema (for option label resolution)
     const schemaRes = await fetch(
       `https://api.webflow.com/v2/collections/${COLLECTION_ID}`,
       { headers }
@@ -50,38 +50,38 @@ export default async function handler(req, res) {
     const itemsData = await itemsRes.json();
     const items = itemsData.items || [];
 
-    // If debugSlug provided, isolate that item
-    const debugSlug = req.query?.debugSlug;
-
     const processed = items.map(item => {
       const fd = item.fieldData || {};
 
-      const rawReading = fd["reading-time"];
-
-      const finalReading =
-        rawReading && rawReading.trim()
-          ? rawReading
+      const readingTime =
+        fd["reading-time"] && fd["reading-time"].trim()
+          ? fd["reading-time"]
           : "5 min read";
 
       return {
+        id: item.id,
         slug: fd.slug,
-        rawFieldData: fd,                 // 🔎 FULL RAW DATA
-        rawReadingTime: rawReading || null,
-        mappedReadingTime: finalReading,
+        name: fd.name,
+        h1: fd.h1 || fd.name,
+        metaDescription: fd["meta-description"] || "",
+        content: fd.content || "",
+        thumbnail: fd.thumbnail || null,
+        mainImage: fd["main-image"] || null,
+        video: fd.video || null,
+        file: fd.file || null,
+        websiteUrl: fd["website-url"] || null,
+        author: fd["author-s"] || [],
+        requireFormSubmission: fd["require-form-submission"] || false,
+        language: fd.language || null,
+        readingTime,
         formatLabel: resolveOption(formatOptions, fd.format, "Resource"),
         categoryLabel: resolveOption(categoriesOptions, fd.categories, "General"),
         industryLabel: resolveOption(industriesOptions, fd.industries, "Cross-industry")
       };
     });
 
-    if (debugSlug) {
-      const found = processed.find(p => p.slug === debugSlug);
-      return res.status(200).json(found || { message: "Slug not found" });
-    }
-
     return res.status(200).json({
-      firstItem: processed[0],
-      totalItems: processed.length
+      items: processed
     });
 
   } catch (error) {
