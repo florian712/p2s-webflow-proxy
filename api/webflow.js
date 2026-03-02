@@ -16,7 +16,7 @@ export default async function handler(req, res) {
       "accept-version": "2.0.0",
     };
 
-    // 1️⃣ Fetch collection schema
+    // Fetch collection schema
     const schemaRes = await fetch(
       `https://api.webflow.com/v2/collections/${COLLECTION_ID}`,
       { headers }
@@ -33,24 +33,19 @@ export default async function handler(req, res) {
     const categoriesOptions = categoriesField?.validations?.options || [];
     const industriesOptions = industriesField?.validations?.options || [];
 
-    // 2️⃣ Helper to resolve ID → Name
     const resolveOption = (options, value, fallback) => {
       if (!value) return fallback;
-
       const found = options.find(opt => opt.id === value);
       return found ? found.name : fallback;
     };
 
-    // 3️⃣ Fetch live items
     const itemsRes = await fetch(
       `https://api.webflow.com/v2/collections/${COLLECTION_ID}/items/live`,
       { headers }
     );
     const itemsData = await itemsRes.json();
-
     const items = itemsData.items || [];
 
-    // 4️⃣ Map items
     const mapped = items.map(item => {
       const fd = item.fieldData || {};
 
@@ -70,7 +65,9 @@ export default async function handler(req, res) {
         requireFormSubmission: fd["require-form-submission"] || false,
         language: fd.language || null,
 
-        // 🔥 CORRECT RESOLUTION
+        // 🔥 Reading Time Logic
+        readingTime: fd["reading-time"] || "5 min read",
+
         formatLabel: resolveOption(formatOptions, fd.format, "Resource"),
         categoryLabel: resolveOption(categoriesOptions, fd.categories, "General"),
         industryLabel: resolveOption(industriesOptions, fd.industries, "Cross-industry"),
