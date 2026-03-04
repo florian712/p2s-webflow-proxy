@@ -65,6 +65,7 @@ export default async function handler(req, res) {
         h1: fd.h1 || fd.name,
         metaDescription: fd["meta-description"] || "",
         content: fd.content || "",
+        previews: fd.previews || "",   // ✅ ADDED THIS LINE
         thumbnail: fd.thumbnail || null,
         mainImage: fd["main-image"] || null,
         video: fd.video || null,
