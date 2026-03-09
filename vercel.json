@@ -1,0 +1,44 @@
+{
+  "redirects": [
+    {
+      "source": "/news-and-resources/playbook-for-product-as-a-service-models-insights-from-20-industry-leaders",
+      "destination": "/white-paper",
+      "permanent": true
+    },
+    {
+      "source": "/news-and-resources",
+      "destination": "/learning-hub",
+      "permanent": true
+    },
+    {
+      "source": "/news-and-resources/:slug",
+      "destination": "/learning-hub/:slug",
+      "permanent": true
+    },
+    {
+      "source": "/blog",
+      "destination": "/learning-hub",
+      "permanent": true
+    },
+    {
+      "source": "/blog/:slug",
+      "destination": "/learning-hub/:slug",
+      "permanent": true
+    },
+    {
+      "source": "/our-services",
+      "destination": "/services",
+      "permanent": true
+    },
+    {
+      "source": "/about-us",
+      "destination": "/about",
+      "permanent": true
+    },
+    {
+      "source": "/our-clients",
+      "destination": "/industries",
+      "permanent": true
+    }
+  ]
+}
